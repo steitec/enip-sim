@@ -9,7 +9,7 @@
 #   docker run --rm -p 44818:44818 -p 127.0.0.1:44819:44819 ghcr.io/steitec/enip-sim
 #   docker run --rm -p 44818:44818 -v ./bench.yaml:/bench/bench.yaml \
 #       ghcr.io/steitec/enip-sim serve --bench /bench/bench.yaml --host 0.0.0.0 --control-host 0.0.0.0
-FROM python:3.13-slim
+FROM python:3.15-slim
 LABEL org.opencontainers.image.source=https://github.com/steitec/enip-sim \
       org.opencontainers.image.description="Simulated EtherNet/IP (CIP) devices with behaviour and fault injection" \
       org.opencontainers.image.licenses=MIT
