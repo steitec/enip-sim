@@ -12,6 +12,7 @@ import socket
 import socketserver
 import struct
 import threading
+import time
 from dataclasses import dataclass
 from itertools import count
 
@@ -60,8 +61,14 @@ class Server:
         return self.port
 
     def _run_ticker(self) -> None:
+        # Advance by the real elapsed time, not a fixed step, so the simulated time
+        # tracks the wall clock even when the thread is scheduled late (slow or loaded
+        # machines, CI). A long stall is clamped so it does not jump the model forward.
+        last = time.monotonic()
         while not self._stop.wait(_TICK):
-            self.device.tick(_TICK)
+            now = time.monotonic()
+            self.device.tick(min(now - last, 1.0))
+            last = now
 
     def stop(self) -> None:
         self._stop.set()
