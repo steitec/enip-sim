@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -v
+      - run: pytest -v examples/test_example.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install .
+      - name: Build and start the image
+        run: |
+          docker build -t enip-sim .
+          docker run -d --name sim -p 44818:44818 -p 127.0.0.1:44819:44819 enip-sim
+      - name: Reports healthy once it answers
+        run: |
+          for _ in $(seq 60); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' sim)" = healthy ] && break; sleep 1
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' sim)" = healthy
+      - name: EtherNet/IP and the control channel answer from outside the container
+        run: |
+          enip-sim identity
+          enip-sim inject trip code=7
+          enip-sim list | grep -q faulted
+          enip-sim clear
+      - name: Runs unprivileged and stops on SIGTERM
+        run: |
+          test "$(docker exec sim id -u)" = 10001
+          docker stop -t 5 sim
+          test "$(docker inspect -f '{{.State.ExitCode}}' sim)" = 0
+      - if: failure()
+        run: docker logs sim

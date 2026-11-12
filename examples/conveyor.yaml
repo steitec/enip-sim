@@ -1,0 +1,14 @@
+# A custom device built on the bundled `drive` profile with a few overrides.
+# Serve it with:  enip-sim serve --bench examples/conveyor.yaml
+profile: drive
+name: conveyor
+identity:
+  product_name: enip-sim conveyor drive
+  serial: 0x00001234
+model:
+  accel_time: 2.0
+  decel_time: 2.0
+  max_speed: 60.0
+network:
+  ip: 192.168.1.50
+  mac: 00:1D:9C:12:34:56

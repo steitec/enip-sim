@@ -1,0 +1,17 @@
+name: drive
+description: >
+  AC drive (PowerFlex-style): a logic command and speed reference in the output
+  assembly, a status word and actual speed in the input assembly. Ramps towards the
+  reference and latches a trip until a fault reset.
+identity:
+  vendor_id: 0x0001
+  device_type: 0x02        # AC drive
+  product_code: 0x0193
+  revision: {major: 1, minor: 1}
+  serial: 0x00000001
+  product_name: enip-sim drive
+model:
+  type: drive
+  max_speed: 50.0
+  accel_time: 5.0
+  decel_time: 5.0

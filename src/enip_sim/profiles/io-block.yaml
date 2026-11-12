@@ -1,0 +1,16 @@
+name: io-block
+description: >
+  Discrete/analogue I/O block. The output assembly sets the outputs, the input
+  assembly reports the inputs; by default the inputs mirror the outputs (loopback).
+identity:
+  vendor_id: 0x0001
+  device_type: 0x07        # general purpose discrete I/O
+  product_code: 0x0010
+  revision: {major: 1, minor: 0}
+  serial: 0x00000002
+  product_name: enip-sim io-block
+model:
+  type: io-block
+  input_size: 2
+  output_size: 2
+  loopback: true

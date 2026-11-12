@@ -1,0 +1,12 @@
+name: generic-adapter
+description: >
+  A bare EtherNet/IP adapter with the required objects (Identity, Message Router,
+  Connection Manager, TCP/IP Interface, Ethernet Link) and no behaviour model. A
+  starting point for your own profile, and a target for explicit messaging tests.
+identity:
+  vendor_id: 0x0001
+  device_type: 0x0C        # communications adapter
+  product_code: 0x0001
+  revision: {major: 1, minor: 0}
+  serial: 0x00000003
+  product_name: enip-sim generic adapter
