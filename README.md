@@ -33,7 +33,7 @@ Walkthroughs, CI recipes and troubleshooting will live in the
 
 ```console
 $ enip-sim serve drive &
-enip-sim: ethernet/ip 127.0.0.1:44818, control on :44819
+enip-sim: drive: ethernet/ip 127.0.0.1:44818 (udp 2222), control on :44819
   enip-sim drive
 $ enip-sim identity                                   # List Identity of the running device
 enip-sim drive
