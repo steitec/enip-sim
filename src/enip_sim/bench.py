@@ -26,6 +26,7 @@ class Bench:
         self.port = TCP_PORT
         self.control_host = "127.0.0.1"
         self.control_port: int | None = None
+        self.io_port: int | None = None
         self._server: Server | None = None
         self._control = None
 
@@ -53,14 +54,18 @@ class Bench:
 
     # --- lifecycle -----------------------------------------------------------------
     def start(self, *, host: str = "127.0.0.1", port: int = TCP_PORT,
-              control_host: str = "127.0.0.1", control_port: int | None = None) -> int:
+              control_host: str = "127.0.0.1", control_port: int | None = None,
+              io_port: int | None = None) -> int:
+        """Start serving. ``io_port`` is the UDP port for Class 1 I/O: 2222 by default,
+        an ephemeral one when ``port`` is 0."""
         self.host, self.port = host, port
-        self._server = Server(self.device, host=host, port=port)
+        self._server = Server(self.device, host=host, port=port, io_port=io_port)
         try:
             self.port = self._server.start()
         except OSError as error:
             self._server = None
-            raise BenchError(f"cannot bind {host}:{port}: {error}") from None
+            raise BenchError(f"cannot bind {host}:{port} (udp {io_port}): {error}") from None
+        self.io_port = self._server.io_port
         if control_port is not None:
             from .control import ControlServer
             self._control = ControlServer(self, host=control_host, port=control_port)
