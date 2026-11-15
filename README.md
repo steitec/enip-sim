@@ -162,7 +162,7 @@ enip-sim serve --bench fast-drive.yaml
 
 ## Protocol
 
-enip-sim implements the EtherNet/IP encapsulation layer and CIP explicit messaging:
+enip-sim implements the EtherNet/IP encapsulation layer, CIP explicit messaging and implicit (Class 1) I/O:
 
 | layer | what |
 |---|---|
