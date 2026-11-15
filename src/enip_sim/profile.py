@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from . import cip, objects
-from .device import Device
+from .device import HEARTBEAT_INSTANCE, Device, IOPoints
 from .models import DriveModel, IOBlockModel
 
 _PROFILE_DIR = Path(__file__).with_name("profiles")
@@ -133,4 +133,21 @@ def build_device(source: str | Path | dict, name: str | None = None) -> Device:
         objects.ethernet_link_object(speed=int(network.get("speed", 100)), mac=mac_bytes),
         *_assemblies(model),
     ]
-    return Device(name or spec.get("name", "device"), all_objects, model=model)
+    return Device(name or spec.get("name", "device"), all_objects, model=model,
+                  io=_io_points(model, spec.get("io") or {}))
+
+
+def _io_points(model, overrides: dict[str, Any]) -> IOPoints | None:
+    if model is None:
+        return None
+    unknown = set(overrides) - {"config_instance", "heartbeat_instance"}
+    if unknown:
+        raise ProfileError(f"io: unknown key(s) {', '.join(sorted(unknown))}")
+    try:
+        config = int(overrides.get("config_instance", model.CONFIG_INSTANCE))
+        heartbeat = int(overrides.get("heartbeat_instance", HEARTBEAT_INSTANCE))
+    except (TypeError, ValueError) as error:
+        raise ProfileError(f"io: {error}") from None
+    return IOPoints(output_instance=model.OUTPUT_INSTANCE, input_instance=model.INPUT_INSTANCE,
+                    config_instance=config, heartbeat_instance=heartbeat,
+                    output_size=len(model.output), input_size=len(model.input))
