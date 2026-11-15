@@ -75,3 +75,16 @@ def forward_open_data(*, path: bytes, to_cid: int = 0x11111111, serial: int = 0x
             + struct.pack("<I", ot_rpi) + struct.pack(ncp_fmt, ot_ncp)
             + struct.pack("<I", to_rpi) + struct.pack(ncp_fmt, to_ncp)
             + bytes([transport, len(path) // 2]) + path)
+
+
+def wait_until(predicate, timeout: float = 2.0, interval: float = 0.005):
+    """Poll ``predicate`` until it returns a truthy value or ``timeout`` passes."""
+    import time
+    deadline = time.monotonic() + timeout
+    while True:
+        value = predicate()
+        if value:
+            return value
+        if time.monotonic() > deadline:
+            raise AssertionError(f"condition not met within {timeout} s")
+        time.sleep(interval)
