@@ -35,7 +35,7 @@ jobs:
       - name: Build and start the image
         run: |
           docker build -t enip-sim .
-          docker run -d --name sim -p 44818:44818 -p 127.0.0.1:44819:44819 enip-sim
+          docker run -d --name sim -p 44818:44818 -p 2222:2222/udp -p 127.0.0.1:44819:44819 enip-sim
       - name: Reports healthy once it answers
         run: |
           for _ in $(seq 60); do
@@ -48,6 +48,10 @@ jobs:
           enip-sim inject trip code=7
           enip-sim list | grep -q faulted
           enip-sim clear
+      - name: Class 1 I/O over UDP 2222 from outside the container
+        run: |
+          enip-sim io --out 0100fa00 --rpi 20 --seconds 3 | tee io.log
+          grep -q running io.log
       - name: Runs unprivileged and stops on SIGTERM
         run: |
           test "$(docker exec sim id -u)" = 10001

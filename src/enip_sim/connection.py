@@ -1,10 +1,11 @@
 """The Connection Manager: Forward_Open and Forward_Close for Class 3 (connected
-explicit) messaging.
+explicit) messaging and Class 1 (implicit) I/O.
 
-A scanner opens a connection with Forward_Open, then sends CIP requests over it with
-SendUnitData. The target (this simulator) assigns the O->T connection id it receives on
-and echoes the originator's T->O connection id for its replies. Cyclic Class 1 implicit
-I/O over UDP is a later addition; this module handles the connection bookkeeping only.
+A scanner opens a connection with Forward_Open. For Class 3 it then sends CIP requests
+over it with SendUnitData; for Class 1 the assembly data runs over UDP (see :mod:`.io`).
+The target (this simulator) assigns the O->T connection id it receives on and echoes
+the originator's T->O connection id. This module parses and validates the Forward_Open
+and keeps the connection bookkeeping.
 """
 from __future__ import annotations
 

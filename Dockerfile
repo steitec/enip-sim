@@ -24,7 +24,7 @@ RUN useradd --create-home --uid 10001 enip
 USER enip
 WORKDIR /home/enip
 
-EXPOSE 44818 44819
+EXPOSE 44818 44819 2222/udp
 # Healthy once the EtherNet/IP port accepts connections (the control channel may be off
 # with --no-control). A service container in GitHub Actions waits for this.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --start-interval=1s --retries=3 \

@@ -6,16 +6,19 @@
 # enip-sim
 
 [![CI](https://github.com/steitec/enip-sim/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/steitec/enip-sim/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/enip-sim?v=0.1.0)](https://pypi.org/project/enip-sim/)
-[![Python](https://img.shields.io/pypi/pyversions/enip-sim?v=0.1.0)](https://pypi.org/project/enip-sim/)
-[![License](https://img.shields.io/pypi/l/enip-sim?v=0.1.0)](https://github.com/steitec/enip-sim/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/enip-sim?v=0.2.0)](https://pypi.org/project/enip-sim/)
+[![Python](https://img.shields.io/pypi/pyversions/enip-sim?v=0.2.0)](https://pypi.org/project/enip-sim/)
+[![License](https://img.shields.io/pypi/l/enip-sim?v=0.2.0)](https://github.com/steitec/enip-sim/blob/main/LICENSE)
 
 Simulated **EtherNet/IP (CIP)** devices that **behave**: an AC drive whose motor ramps
 up when you set the run bit in its output assembly and trips when you tell it to, an
 I/O block that mirrors its channels, a bare adapter to build your own on. They speak
-the EtherNet/IP encapsulation protocol and CIP explicit messaging — unconnected and
-connected (Forward_Open / Class 3) — so you can develop and test SCADA links, HMIs,
-gateways or your own scanner code without a PLC or a drive on the bench, also in CI.
+the EtherNet/IP encapsulation protocol, CIP explicit messaging — unconnected and
+connected (Forward_Open / Class 3) — and **implicit (Class 1) I/O**: the cyclic exchange
+of assembly data over UDP 2222 that scanners use to run a device. So you can develop and
+test SCADA links, HMIs, gateways or your own scanner code without a PLC or a drive on the
+bench, also in CI: connection setup, run/idle, timeouts, lost packets and the rejections
+you meet at commissioning.
 
 The test suite cross-checks the simulator against
 [pycomm3](https://github.com/ottowayi/pycomm3), so code written against a real client
@@ -165,12 +168,71 @@ enip-sim implements the EtherNet/IP encapsulation layer and CIP explicit messagi
 |---|---|
 | encapsulation | RegisterSession / UnRegisterSession, ListIdentity, ListServices, ListInterfaces, NOP, SendRRData, SendUnitData |
 | CIP services | Get_Attribute_Single, Get_Attributes_All, Set_Attribute_Single, Reset; Unconnected_Send |
-| connections | Forward_Open / Forward_Close for connected (Class 3) explicit messaging |
+| connections | Forward_Open / Large_Forward_Open / Forward_Close: connected (Class 3) explicit messaging and implicit (Class 1) I/O |
+| implicit I/O | cyclic O→T / T→O assembly data over UDP 2222, point-to-point, see [Implicit I/O](#implicit-class-1-io) |
 
 Messages come in unconnected (SendRRData, optionally wrapped in an Unconnected_Send) or
 connected (a Forward_Open, then SendUnitData). A request to an unknown class or instance
 answers *path destination unknown* (0x05); an unknown attribute, *attribute not
 supported* (0x14); a write to a read-only attribute, *attribute not settable* (0x0E).
+
+## Implicit (Class 1) I/O
+
+A scanner opens a Class 1 connection with Forward_Open (or Large_Forward_Open) over TCP.
+From then on it sends its output data O→T to the device's UDP port 2222 at its RPI, and
+the device produces its input data T→O at the T→O RPI. That is what keeps a drive
+running on a real network, and what most scanner, gateway and HMI code depends on.
+
+| | |
+|---|---|
+| connection types | **exclusive owner** (O→T = output assembly) and **input-only** (O→T = heartbeat instance 198); point-to-point both ways, cyclic trigger |
+| connection path | `20 04 24 <config> 2C <O→T point> 2C <T→O point>` (port segments, an electronic key and config data are accepted and skipped; the key is not checked) |
+| real-time format | O→T with the 32-bit run/idle header, T→O modeless; both with the 16-bit sequence count |
+| sizes (network connection parameters) | O→T = output assembly + 6 bytes, T→O = input assembly + 2 bytes; heartbeat O→T 2 or 6 |
+| RPI | 10 ms or slower; the answer's API equals the requested RPI |
+| run / idle | run: the outputs go to the output assembly; idle: the device holds its outputs |
+| timeout | no O→T packet for timeout multiplier × O→T RPI: the connection closes, production stops and an exclusive owner's outputs go to **zero** (safe state). Forward_Close leaves them as they are |
+| T→O destination | the scanner's IP address (the TCP peer), port from a T→O sockaddr item in the Forward_Open, else 2222 |
+| UDP port | 2222 (`serve --io-port N`); a port other than 2222 is announced in an O→T sockaddr item in the reply |
+
+While an exclusive owner runs, an explicit write to the output assembly answers *device
+state conflict* (0x10), as on a real adapter. A Forward_Open the device cannot accept gets
+a connection failure (0x01) with the extended status you would see at commissioning:
+
+| extended status | when |
+|---|---|
+| 0x0100 | the same connection (serial, vendor, originator serial) is already open |
+| 0x0103 | not Class 1 cyclic or Class 3 (e.g. change-of-state trigger) |
+| 0x0106 | an exclusive owner is already connected to the output assembly |
+| 0x0108 | multicast or null connection type |
+| 0x0109 | wrong connection size; the additional status word is the size the device expects |
+| 0x0111 | RPI below 10 ms |
+| 0x0117 | unknown O→T or T→O connection point (or a device without I/O assemblies) |
+| 0x0118 | wrong configuration instance |
+
+The I/O points of the bundled profiles:
+
+| profile | config | O→T (output) | T→O (input) | heartbeat |
+|---|---|---|---|---|
+| `drive` | 1 | 20 (4 bytes) | 70 (4 bytes) | 198 |
+| `io-block` | 102 | 101 (2 bytes) | 100 (2 bytes) | 198 |
+
+A profile can change the config and heartbeat instances with
+`io: {config_instance: 5, heartbeat_instance: 199}`. `generic-adapter` has no assemblies,
+so it rejects Class 1 connections.
+
+From the command line, `enip-sim io` opens a connection and prints the inputs whenever
+they change (the profile comes from the device type, or `--profile`):
+
+```console
+$ enip-sim io --out 0100f401 --rpi 20 --seconds 3       # run forward, 50.0 Hz
+enip-sim: drive I/O open (run, RPI 20 ms), O->T 0x20000001, T->O 0x31389027
+  0.000 s  in 02000000  status 0x0002 (ready), speed 0.0 Hz
+  0.040 s  in 03000500  status 0x0003 (running, ready), speed 0.5 Hz
+  0.101 s  in 03000a00  status 0x0003 (running, ready), speed 1.0 Hz
+  ...
+enip-sim: 151 input packets in 3 s
+```
 
 ## Fault injection
 
@@ -186,7 +248,9 @@ over the control channel, clear them with `enip-sim clear [FAULT]`:
 | `forward_open_reject` | status=0x0100 | Forward_Open answers a connection failure with this extended status |
 | `bad_status` | status=0x02, service | a CIP service answers this general status (optionally only one service) |
 | `reject_write` | status=0x0F | Set_Attribute answers this status |
-| `wrong_assembly` | | the input assembly reads corrupted |
+| `wrong_assembly` | | the input assembly reads corrupted (explicit reads and T→O data) |
+| `connection_timeout` | | Class 1 connections stop producing T→O data; the scanner's connection times out |
+| `io_loss` | every=2 | every n-th T→O packet of each Class 1 connection is lost |
 | `trip` | code=1 | `drive`: fault trip, motor coasts to stop, latched until a fault reset |
 
 ## Control channel
@@ -220,6 +284,19 @@ with EnipClient("127.0.0.1", 44818) as c:
 A CIP error raises `EnipError` (with `.status`). For production code use pycomm3 or a
 similar full stack; the test suite cross-checks the simulator against pycomm3.
 
+The client can also act as the originator of a Class 1 connection:
+
+```python
+with EnipClient("127.0.0.1", 44818) as c:
+    with c.open_io(output_instance=20, input_instance=70, config_instance=1,
+                   output_size=4, input_size=4, rpi_ms=20) as io:
+        io.set_outputs(b"\x01\x00\xf4\x01")          # run forward, 50.0 Hz
+        io.run()                                       # run bit set (io.idle() clears it)
+        io.wait_for_inputs(lambda d: d[2:] == b"\xf4\x01", timeout=15)
+```
+
+A rejected Forward_Open raises `ForwardOpenError` with `.extended` (e.g. 0x0109).
+
 ## pytest plugin
 
 Installing enip-sim registers two fixtures:
@@ -236,6 +313,18 @@ def test_line(enip_bench_factory):
         ...
 ```
 
+A bench opens Class 1 connections with its device's own I/O points:
+
+```python
+def test_scanner_sees_the_trip(enip_bench):
+    with enip_bench.open_io(rpi_ms=20) as io:
+        io.set_outputs(b"\x01\x00\xf4\x01")
+        io.run()
+        enip_bench.inject("trip", code=4)
+        io.wait_for_inputs(lambda d: d[0] & 0x04)      # status: faulted
+```
+
+The fixtures start on free ports, UDP included (`bench.io_port`).
 `--enip-bench FILE` or the ini key `enip_bench` sets what `enip_bench` starts. See
 [examples/test_example.py](examples/test_example.py).
 
@@ -245,10 +334,16 @@ For scanners that are not written in Python: the image runs the `drive` profile 
 EtherNet/IP, with the control channel for fault injection.
 
 ```bash
-docker run --rm --name sim -p 44818:44818 -p 127.0.0.1:44819:44819 ghcr.io/steitec/enip-sim
+docker run --rm --name sim -p 44818:44818 -p 2222:2222/udp -p 127.0.0.1:44819:44819 \
+    ghcr.io/steitec/enip-sim
 ```
 
-The control channel has no authentication, hence `127.0.0.1:` in front of it. The image
+The control channel has no authentication, hence `127.0.0.1:` in front of it. Class 1
+I/O needs UDP both ways: the device sends T→O to the scanner's address as it sees it,
+which works with Docker Engine on Linux (the CI checks it) but not through Docker
+Desktop's VM. If the scanner itself listens on UDP 2222 on the same machine, give the
+simulator another UDP port (`serve --io-port 2223`, published as `-p 2223:2223/udp`); the
+reply to Forward_Open tells the scanner where to send. The image
 reports itself healthy once port 44818 accepts connections, so a service container in
 GitHub Actions starts with the device ready:
 
@@ -258,6 +353,7 @@ services:
     image: ghcr.io/steitec/enip-sim
     ports:
       - 44818:44818
+      - 2222:2222/udp
       - 127.0.0.1:44819:44819
 ```
 
@@ -267,11 +363,13 @@ services:
   implementation.
 - The bundled devices are invented, with plausible assemblies and behaviour; they are
   not copies of any product. Product names identify a documented style only.
-- **No implicit (Class 1) I/O yet** — no cyclic O→T / T→O exchange over UDP 2222. That
-  is the headline of the next release. This version is explicit messaging (unconnected
-  and connected) only.
-- No CIP routing through a backplane (port segments / slots), no Large Forward_Open
-  connection parameters beyond what is parsed, no EtherNet/IP Security (CIP Security).
+- Implicit I/O is point-to-point and cyclic only: no multicast T→O, no listen-only
+  connections, no change-of-state or application trigger. The RPI is 10 ms or slower,
+  with the timing jitter of a Python process.
+- The scanner must send O→T from the IP address its TCP session comes from; packets from
+  any other address are ignored.
+- No CIP routing through a backplane (port segments / slots), no EtherNet/IP Security
+  (CIP Security).
 - One device per server (an EtherNet/IP device is one network endpoint).
 
 ## Licence
