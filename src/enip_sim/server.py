@@ -167,7 +167,8 @@ class Server:
             if service in (cip.FORWARD_OPEN, cip.LARGE_FORWARD_OPEN):
                 reject = self.device.faults.take("forward_open_reject")
                 status, rdata, add = self.connections.forward_open(
-                    cdata, reject_status=reject["status"] if reject else None)
+                    cdata, large=service == cip.LARGE_FORWARD_OPEN,
+                    reject_status=reject["status"] if reject else None)
                 return cip.encode_mr_reply(service, status, additional=add, data=rdata)
             if service == cip.FORWARD_CLOSE:
                 status, rdata, add = self.connections.forward_close(cdata)
