@@ -124,3 +124,48 @@ def test_cli_serve_parser_has_io_port():
     from enip_sim.cli import build_parser
     args = build_parser().parse_args(["serve", "io-block", "--io-port", "0"])
     assert args.io_port == 0
+
+
+def test_cli_io_into_a_closed_pipe_ends_cleanly(block):
+    """`enip-sim io ... | head -1`: no traceback, and the connection is closed."""
+    import subprocess
+    import sys
+    import time
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "enip_sim", "io", "--port", str(block.port),
+         "--profile", "io-block", "--out", "a55a", "--rpi", "100", "--seconds", "30"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc.stdout.readline()                 # like head -1: one line, then gone
+    proc.stdout.close()
+    start = time.monotonic()
+    stderr = proc.stderr.read().decode()
+    proc.stderr.close()
+    code = proc.wait(timeout=10)
+    assert time.monotonic() - start < 5    # stops at once, not after --seconds
+    assert "Traceback" not in stderr and "BrokenPipe" not in stderr, stderr
+    assert code == 0
+    # gone through Forward_Close; the RPI-based timeout (16 x 100 ms) has not run out yet
+    assert block._server.connections.connections == {}
+
+
+def test_receive_survives_connection_reset(block, monkeypatch):
+    """Windows reports an ICMP port unreachable on the next recvfrom (WSAECONNRESET):
+    the receive thread must keep going, not end for good."""
+    import socket
+    import types
+    from enip_sim import originator
+
+    class ResettingSocket(socket.socket):
+        resets = 0
+
+        def recvfrom(self, *args):
+            if ResettingSocket.resets == 0:
+                ResettingSocket.resets += 1
+                raise ConnectionResetError(10054, "connection reset by peer")
+            return super().recvfrom(*args)
+    monkeypatch.setattr(originator, "socket", types.SimpleNamespace(
+        socket=ResettingSocket, AF_INET=socket.AF_INET, SOCK_DGRAM=socket.SOCK_DGRAM,
+        timeout=socket.timeout))
+    with block.open_io(rpi_ms=20) as io:
+        assert io.wait_for_inputs(lambda d: d is not None) is not None
+    assert ResettingSocket.resets == 1

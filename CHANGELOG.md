@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.2.1 - 2026-11-15
+
+### Fixed
+
+- A Class 1 Forward_Open wrapped in Unconnected_Send (how many scanners route it) now
+  opens the connection and starts the I/O; before, the device answered "service not
+  supported". A Class 1 Forward_Open sent over a Class 3 connection (SendUnitData) now
+  starts the I/O too
+- Two sessions opening an exclusive owner at the same moment could both get the
+  outputs: the duplicate and ownership check and adding the connection are now one step
+- `enip-sim io ... | head` ends cleanly: no traceback when the reader goes away, and
+  the connection is closed with Forward_Close instead of timing out
+- The originator (`open_io`) keeps receiving after a `ConnectionResetError`, which
+  Windows raises on `recvfrom` after an ICMP port unreachable; before, inputs stopped
+  for good
+
 ## 0.2.0 - 2026-11-15
 
 ### Added

@@ -178,3 +178,31 @@ def test_write_outputs_and_read_inputs():
     device.write_outputs(b"\x12\x34")          # implicit path ignores the guard
     device.tick(0.01)
     assert device.read_inputs() == b"\x12\x34"
+
+
+def test_concurrent_exclusive_owners_get_one_connection(monkeypatch):
+    """Two sessions race for the outputs: the check and the insert must be atomic."""
+    import threading
+    import time
+    from enip_sim import connection as connection_module
+
+    check = connection_module._class1_failure
+
+    def slow_check(*args):
+        result = check(*args)
+        time.sleep(0.2)            # widen the window between the check and the insert
+        return result
+    monkeypatch.setattr(connection_module, "_class1_failure", slow_check)
+    mgr = ConnectionManager(device_io=lambda: IO)
+    results = []
+
+    def open_one(serial):
+        results.append(mgr.forward_open(owner(serial=serial))[0])
+    threads = [threading.Thread(target=open_one, args=(serial,)) for serial in (1, 2)]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.05)
+    for thread in threads:
+        thread.join()
+    assert sorted(results) == [cip.SUCCESS, cip.CONNECTION_FAILURE]
+    assert len(mgr.connections) == 1

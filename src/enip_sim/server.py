@@ -165,7 +165,7 @@ class Server:
             connection_id, sequence, request = enc.decode_unit_data(data)
         except enc.EncapsulationError:
             return Reply(self._packet(header, status=enc.STATUS_INCORRECT_DATA))
-        reply = self.process_cip(request)
+        reply, _ = self._process_with_items(request, peer, [])
         connection = self.connections.lookup(connection_id)
         reply_cid = connection.to_cid if connection is not None else connection_id
         body = enc.encode_unit_data(connection_id=reply_cid, sequence=sequence, cip=reply)
@@ -230,7 +230,9 @@ class Server:
             return cip.encode_mr_reply(cip.UNCONNECTED_SEND, cip.NOT_ENOUGH_DATA)
         size = struct.unpack_from("<H", data, 2)[0]
         embedded = data[4:4 + size]
-        return self.device.handle(embedded)
+        # the reply to Unconnected_Send is the embedded request's reply, so a wrapped
+        # Forward_Open (how many scanners route it) opens the connection like a bare one
+        return self.process_cip(embedded)
 
     # --- List* item bodies ---------------------------------------------------------
     def _identity_item(self) -> bytes:

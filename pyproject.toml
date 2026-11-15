@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "enip-sim"
-version = "0.2.0"
+version = "0.2.1"
 description = "Simulated EtherNet/IP (CIP) devices with behaviour and fault injection: drives, I/O blocks and generic adapters, explicit and implicit messaging"
 readme = "README.md"
 license = "MIT"

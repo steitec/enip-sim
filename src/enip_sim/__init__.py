@@ -3,7 +3,7 @@
 Public API: :class:`~enip_sim.bench.Bench`, :class:`~enip_sim.device.Device`,
 :class:`~enip_sim.client.EnipClient` (with ``open_io`` for Class 1 I/O), and :func:`~enip_sim.profile.build_device`.
 """
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from .bench import Bench, BenchError
 from .client import EnipClient, EnipError, ForwardOpenError
