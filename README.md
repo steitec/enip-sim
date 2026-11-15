@@ -22,7 +22,11 @@ you meet at commissioning.
 
 The test suite cross-checks the simulator against
 [pycomm3](https://github.com/ottowayi/pycomm3), so code written against a real client
-works against the simulator.
+works against the simulator. Implicit I/O was cross-checked by hand against the C++
+scanner [EIPScanner](https://github.com/nimbuscontrols/EIPScanner) 1.3.0: Forward_Open
+and Large_Forward_Open, io-block loopback, the drive ramping up at a 20 ms RPI (100
+packets in 2 s), Forward_Close, and a wrong size rejected with 0x0109 and the expected
+size.
 
 Walkthroughs, CI recipes and troubleshooting will live in the
 [wiki](https://github.com/steitec/enip-sim/wiki); this README is the reference.

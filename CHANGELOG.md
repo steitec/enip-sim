@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format follows
   `enip-sim io` on the command line; `serve --io-port`
 - Profiles: `io:` with `config_instance` and `heartbeat_instance`
 - Docker image exposes 2222/udp; the CI runs a Class 1 connection into the container
+- Cross-checked by hand against EIPScanner 1.3.0 (C++): Forward_Open and
+  Large_Forward_Open, io-block loopback, drive ramp at a 20 ms RPI, Forward_Close, size
+  rejection 0x0109
 
 ### Fixed
 
