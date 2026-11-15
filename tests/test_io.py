@@ -157,8 +157,13 @@ def test_io_timeout_closes_and_zeroes_outputs(rig):
 
 def test_io_keeps_connection_while_originator_sends(rig):
     device, manager, engine, origin, open_io = rig
-    connection = open_io(multiplier=0, ot_rpi=20000)
-    for seq in range(15):
+    # timeout 16 x 20 ms = 320 ms; keep sending for at least twice that. (A tighter
+    # multiplier flakes on macOS runners, where 20 ms sleeps were seen to take ~100 ms.)
+    connection = open_io(multiplier=2, ot_rpi=20000)
+    start = time.monotonic()
+    seq = 0
+    while time.monotonic() - start < 0.7:
+        seq += 1
         origin.send(engine.port, connection.ot_cid, b"\x00\x00", seq=seq)
         time.sleep(0.02)
     assert connection.ot_cid in manager.connections

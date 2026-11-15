@@ -60,7 +60,8 @@ def test_delay_makes_the_reply_late(running):
     device.inject("delay", seconds=0.3)
     start = time.monotonic()
     _read_identity(port)
-    assert time.monotonic() - start >= 0.3
+    # >= 0.3 s less one Windows clock tick: there monotonic() moves in ~16 ms steps
+    assert time.monotonic() - start >= 0.3 - 0.02
 
 
 def test_model_runs_while_served(running):

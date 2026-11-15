@@ -99,7 +99,7 @@ def test_bench_open_io_without_io_points():
 
 def test_cli_io_prints_inputs(block, capsys):
     code = main(["io", "--port", str(block.port), "--profile", "io-block", "--out", "a55a",
-                 "--rpi", "20", "--seconds", "0.5"])
+                 "--rpi", "20", "--seconds", "1.5"])
     out = capsys.readouterr().out
     assert code == 0
     assert "a55a" in out
