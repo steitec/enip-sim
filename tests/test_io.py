@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 import time
 
@@ -96,7 +97,11 @@ def test_io_produces_at_rpi(rig):
     start = len(origin.packets)
     time.sleep(0.5)
     count = len(origin.packets) - start
-    assert 4 <= count <= 13, count          # 10 nominal; slack for slow CI runners
+    # 10 nominal. On macOS CI runners every short wait (sleep, Event.wait, select) takes
+    # 2-4x as long as asked (20 ms -> 40-86 ms median, measured 2026-11-15), so only the
+    # upper bound (no bursts) is meaningful there.
+    lower = 1 if sys.platform == "darwin" else 4
+    assert lower <= count <= 13, count
     assert all(p.cid == connection.to_cid for _, p in origin.packets)
 
 

@@ -365,8 +365,9 @@ services:
   not copies of any product. Product names identify a documented style only.
 - Implicit I/O is point-to-point and cyclic only: no multicast T→O, no listen-only
   connections, no change-of-state or application trigger. The RPI is 10 ms or slower,
-  with the timing jitter of a Python process; on macOS CI runners packets were seen up
-  to ~100 ms late, so use a generous timeout multiplier there.
+  with the timing jitter of a Python process. On macOS the operating system stretches
+  short timers: on GitHub's macOS runners a 20 ms wait took 40–86 ms (median), up to
+  ~100 ms, so packets run late there; use a generous timeout multiplier on macOS.
 - The scanner must send O→T from the IP address its TCP session comes from; packets from
   any other address are ignored.
 - No CIP routing through a backplane (port segments / slots), no EtherNet/IP Security

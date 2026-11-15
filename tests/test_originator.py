@@ -107,7 +107,7 @@ def test_cli_io_prints_inputs(block, capsys):
 
 def test_cli_io_decodes_drive_status(drive, capsys):
     code = main(["io", "--port", str(drive.port), "--out", "0100fa00", "--rpi", "20",
-                 "--seconds", "0.6"])
+                 "--seconds", "2"])
     out = capsys.readouterr().out
     assert code == 0
     assert "running" in out
