@@ -8,6 +8,7 @@
     enip-sim read 0x01 1 1                   # Get_Attribute_Single (class, instance, attr)
     enip-sim write 0x04 20 3 0100f401        # Set_Attribute_Single with hex data
     enip-sim assembly 70                     # read an assembly and decode a drive status
+    enip-sim io --out 0100f401 --seconds 5   # Class 1 I/O: run the drive at 50.0 Hz
     enip-sim inject trip code=5              # fault injection over the control channel
     enip-sim clear                           # clear all faults
     enip-sim get                             # read the model's variables
@@ -21,11 +22,12 @@ import signal
 import struct
 import sys
 import threading
+import time
 from typing import Any
 
 from . import __version__, cip
 from .bench import Bench, BenchError
-from .client import EnipClient, EnipError
+from .client import EnipClient, EnipError, ForwardOpenError
 from .control import CONTROL_PORT, send_control
 from .profile import ProfileError, bundled_profiles, build_device
 from .server import TCP_PORT
@@ -120,7 +122,7 @@ def _cmd_serve(args) -> int:
     control_port = None if args.no_control else args.control_port
     try:
         bench.start(host=args.host, port=args.port, control_host=args.control_host,
-                    control_port=control_port)
+                    control_port=control_port, io_port=args.io_port)
     except BenchError as error:
         print(f"{PROG}: {error}", file=sys.stderr)
         return 2
@@ -206,6 +208,73 @@ def _cmd_assembly(args) -> int:
     return 0
 
 
+# device type (Identity attribute 2) -> bundled profile, for `io` without --profile
+_PROFILE_BY_TYPE = {0x02: "drive", 0x07: "io-block"}
+
+
+def _cmd_io(args) -> int:
+    try:
+        client = _client(args).connect()
+    except (OSError, ConnectionError) as error:
+        print(f"{PROG}: {error}", file=sys.stderr)
+        return 1
+    try:
+        profile = args.profile
+        if profile is None:
+            device_type = client.list_identity().get("device_type")
+            profile = _PROFILE_BY_TYPE.get(device_type)
+            if profile is None:
+                print(f"{PROG}: unknown device type {device_type!r}; name a --profile",
+                      file=sys.stderr)
+                return 2
+        try:
+            io = build_device(profile).io
+        except ProfileError as error:
+            print(f"{PROG}: {error}", file=sys.stderr)
+            return 2
+        if io is None:
+            print(f"{PROG}: profile {profile!r} has no I/O assemblies", file=sys.stderr)
+            return 2
+        outputs = bytes.fromhex(args.out) if args.out else bytes(io.output_size)
+        if len(outputs) != io.output_size and not args.input_only:
+            print(f"{PROG}: --out must be {io.output_size} bytes for {profile}", file=sys.stderr)
+            return 2
+        connection = client.open_io(
+            output_instance=io.output_instance, input_instance=io.input_instance,
+            config_instance=io.config_instance, output_size=io.output_size,
+            input_size=io.input_size, heartbeat_instance=io.heartbeat_instance,
+            rpi_ms=args.rpi, input_only=args.input_only)
+    except ForwardOpenError as error:
+        print(f"{PROG}: Forward_Open rejected: {error}", file=sys.stderr)
+        client.close()
+        return 1
+    except (OSError, ConnectionError, EnipError) as error:
+        print(f"{PROG}: {error}", file=sys.stderr)
+        client.close()
+        return 1
+    with connection:
+        if not args.input_only:
+            connection.set_outputs(outputs)
+            connection.idle() if args.idle else connection.run()
+        mode = "input-only" if args.input_only else ("idle" if args.idle else "run")
+        print(f"{PROG}: {profile} I/O open ({mode}, RPI {args.rpi:g} ms), "
+              f"O->T 0x{connection.ot_cid:08x}, T->O 0x{connection.to_cid:08x}", flush=True)
+        start = time.monotonic()
+        last = None
+        while time.monotonic() - start < args.seconds:
+            data = connection.inputs
+            if data is not None and data != last:
+                line = f"{time.monotonic() - start:7.3f} s  in {data.hex()}"
+                status = _drive_status(data) if profile == "drive" else ""
+                print(line + (status if status else ""), flush=True)
+                last = data
+            time.sleep(min(args.rpi / 1000, 0.05))
+        received = connection.packets_received
+    client.close()
+    print(f"{PROG}: {received} input packets in {args.seconds:g} s", flush=True)
+    return 0
+
+
 def _control_call(args, request: dict) -> int:
     try:
         answer = send_control(request, host=args.control_host, port=args.control_port)
@@ -285,7 +354,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--control-host", default="127.0.0.1")
     p.add_argument("--control-port", type=int, default=CONTROL_PORT)
     p.add_argument("--no-control", action="store_true", help="do not open the control channel")
+    p.add_argument("--io-port", type=int, default=None,
+                   help="UDP port for Class 1 I/O (default 2222; 0 = any free port)")
     p.set_defaults(func=_cmd_serve)
+
+    p = sub.add_parser("io", help="open a Class 1 I/O connection and print the inputs")
+    add_wire(p)
+    p.add_argument("--profile", help="bundled profile of the device (default: from its "
+                                     "device type)")
+    p.add_argument("--out", help="output data as hex (default all zero)")
+    p.add_argument("--rpi", type=float, default=50.0, help="RPI in ms (default 50)")
+    p.add_argument("--seconds", type=float, default=5.0, help="how long to run (default 5)")
+    p.add_argument("--idle", action="store_true", help="send with the run bit clear")
+    p.add_argument("--input-only", action="store_true",
+                   help="input-only connection (heartbeat, no outputs)")
+    p.set_defaults(func=_cmd_io)
 
     p = sub.add_parser("identity", help="List Identity of a running device")
     add_wire(p)

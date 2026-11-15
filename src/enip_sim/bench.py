@@ -87,6 +87,26 @@ class Bench:
         call ``.connect()`` yourself."""
         return EnipClient(self.host, self.port)
 
+    def open_io(self, *, rpi_ms: float = 50, **options: Any):
+        """Open a Class 1 connection to this bench's device with its own I/O points
+        (instances and sizes); returns an IOConnection that also owns its client.
+        Options as for :meth:`EnipClient.open_io` override the defaults."""
+        io = self.device.io
+        if io is None:
+            raise ValueError(f"{self.device.name} has no I/O assemblies (no behaviour model)")
+        defaults = dict(output_instance=io.output_instance, input_instance=io.input_instance,
+                        config_instance=io.config_instance, output_size=io.output_size,
+                        input_size=io.input_size, heartbeat_instance=io.heartbeat_instance)
+        defaults.update(options)
+        client = self.client().connect()
+        try:
+            connection = client.open_io(rpi_ms=rpi_ms, **defaults)
+        except BaseException:
+            client.close()
+            raise
+        connection.owns_client = True
+        return connection
+
     @property
     def devices(self) -> dict[str, Device]:
         return {self.device.name: self.device}
