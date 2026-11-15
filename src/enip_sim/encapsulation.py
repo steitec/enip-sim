@@ -6,6 +6,7 @@ Volume 2: EtherNet/IP Adaptation of CIP", chapter 2 (encapsulation) and 3-2 (CPF
 """
 from __future__ import annotations
 
+import socket
 import struct
 from dataclasses import dataclass
 
@@ -116,22 +117,50 @@ def decode_cpf(buffer: bytes) -> list[tuple[int, bytes]]:
 # --- SendRRData / SendUnitData bodies -----------------------------------------------
 # Both start with an interface handle (UDINT, 0 for CIP) and a timeout (UINT), then CPF.
 
-def encode_rr_data(cip: bytes, *, timeout: int = 0, interface: int = 0) -> bytes:
-    """Unconnected message: null address item + unconnected data item."""
-    cpf = encode_cpf([(ITEM_NULL_ADDRESS, b""), (ITEM_UNCONNECTED_DATA, cip)])
+def encode_rr_data(cip: bytes, *, timeout: int = 0, interface: int = 0,
+                   extra_items: list[tuple[int, bytes]] | tuple = ()) -> bytes:
+    """Unconnected message: null address item + unconnected data item, then any extra
+    items (the sockaddr info items of a Class 1 Forward_Open)."""
+    cpf = encode_cpf([(ITEM_NULL_ADDRESS, b""), (ITEM_UNCONNECTED_DATA, cip),
+                      *extra_items])
     return struct.pack("<IH", interface, timeout) + cpf
+
+
+def decode_rr_items(body: bytes) -> tuple[bytes, int, list[tuple[int, bytes]]]:
+    """Return (cip message, timeout, other items) from a SendRRData body."""
+    if len(body) < 6:
+        raise EncapsulationError("SendRRData body too short")
+    interface, timeout = struct.unpack_from("<IH", body, 0)
+    message = None
+    others: list[tuple[int, bytes]] = []
+    for type_id, data in decode_cpf(body[6:]):
+        if type_id == ITEM_UNCONNECTED_DATA and message is None:
+            message = data
+        elif type_id != ITEM_NULL_ADDRESS:
+            others.append((type_id, data))
+    if message is None:
+        raise EncapsulationError("SendRRData without an unconnected data item")
+    return message, timeout, others
 
 
 def decode_rr_data(body: bytes) -> tuple[bytes, int]:
     """Return (cip message, timeout) from a SendRRData body."""
-    if len(body) < 6:
-        raise EncapsulationError("SendRRData body too short")
-    interface, timeout = struct.unpack_from("<IH", body, 0)
-    items = decode_cpf(body[6:])
-    for type_id, data in items:
-        if type_id == ITEM_UNCONNECTED_DATA:
-            return data, timeout
-    raise EncapsulationError("SendRRData without an unconnected data item")
+    message, timeout, _ = decode_rr_items(body)
+    return message, timeout
+
+
+def encode_sockaddr(host: str, port: int) -> bytes:
+    """A sockaddr info item body (big-endian, like struct sockaddr_in)."""
+    return struct.pack(">hH4s8s", 2, port,
+                       socket.inet_aton(host), b"\x00" * 8)
+
+
+def decode_sockaddr(data: bytes) -> tuple[str, int]:
+    """(host, port) from a sockaddr info item body."""
+    if len(data) < 8:
+        raise EncapsulationError("sockaddr info item too short")
+    _, port, address = struct.unpack_from(">hH4s", data, 0)
+    return socket.inet_ntoa(address), port
 
 
 def encode_unit_data(*, connection_id: int, sequence: int, cip: bytes,

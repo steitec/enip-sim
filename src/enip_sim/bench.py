@@ -26,6 +26,7 @@ class Bench:
         self.port = TCP_PORT
         self.control_host = "127.0.0.1"
         self.control_port: int | None = None
+        self.io_port: int | None = None
         self._server: Server | None = None
         self._control = None
 
@@ -53,14 +54,18 @@ class Bench:
 
     # --- lifecycle -----------------------------------------------------------------
     def start(self, *, host: str = "127.0.0.1", port: int = TCP_PORT,
-              control_host: str = "127.0.0.1", control_port: int | None = None) -> int:
+              control_host: str = "127.0.0.1", control_port: int | None = None,
+              io_port: int | None = None) -> int:
+        """Start serving. ``io_port`` is the UDP port for Class 1 I/O: 2222 by default,
+        an ephemeral one when ``port`` is 0."""
         self.host, self.port = host, port
-        self._server = Server(self.device, host=host, port=port)
+        self._server = Server(self.device, host=host, port=port, io_port=io_port)
         try:
             self.port = self._server.start()
         except OSError as error:
             self._server = None
-            raise BenchError(f"cannot bind {host}:{port}: {error}") from None
+            raise BenchError(f"cannot bind {host}:{port} (udp {io_port}): {error}") from None
+        self.io_port = self._server.io_port
         if control_port is not None:
             from .control import ControlServer
             self._control = ControlServer(self, host=control_host, port=control_port)
@@ -81,6 +86,26 @@ class Bench:
         """An EtherNet/IP client for this bench; use it as a context manager, or
         call ``.connect()`` yourself."""
         return EnipClient(self.host, self.port)
+
+    def open_io(self, *, rpi_ms: float = 50, **options: Any):
+        """Open a Class 1 connection to this bench's device with its own I/O points
+        (instances and sizes); returns an IOConnection that also owns its client.
+        Options as for :meth:`EnipClient.open_io` override the defaults."""
+        io = self.device.io
+        if io is None:
+            raise ValueError(f"{self.device.name} has no I/O assemblies (no behaviour model)")
+        defaults = dict(output_instance=io.output_instance, input_instance=io.input_instance,
+                        config_instance=io.config_instance, output_size=io.output_size,
+                        input_size=io.input_size, heartbeat_instance=io.heartbeat_instance)
+        defaults.update(options)
+        client = self.client().connect()
+        try:
+            connection = client.open_io(rpi_ms=rpi_ms, **defaults)
+        except BaseException:
+            client.close()
+            raise
+        connection.owns_client = True
+        return connection
 
     @property
     def devices(self) -> dict[str, Device]:

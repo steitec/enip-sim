@@ -21,6 +21,7 @@ class DriveModel:
 
     OUTPUT_INSTANCE = 20
     INPUT_INSTANCE = 70
+    CONFIG_INSTANCE = 1
     OUTPUT_SIZE = 4
     INPUT_SIZE = 4
 
@@ -117,6 +118,7 @@ class IOBlockModel:
 
     OUTPUT_INSTANCE = 101
     INPUT_INSTANCE = 100
+    CONFIG_INSTANCE = 102
 
     def __init__(self, *, input_size: int = 2, output_size: int = 2,
                  loopback: bool = True, time_scale: float = 1.0):

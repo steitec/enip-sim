@@ -6,6 +6,7 @@ the device handles CIP object access.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Iterable
 
 from . import cip
@@ -14,9 +15,27 @@ from .models import DriveModel
 from .objects import CIPObject
 
 
+HEARTBEAT_INSTANCE = 198   # input-only heartbeat connection point (common convention)
+
+
+@dataclass
+class IOPoints:
+    """The assembly instances and sizes a Class 1 connection can use."""
+    output_instance: int       # O->T, consumed by the device
+    input_instance: int        # T->O, produced by the device
+    config_instance: int
+    heartbeat_instance: int    # O->T point of an input-only connection
+    output_size: int
+    input_size: int
+
+
 class Device:
-    def __init__(self, name: str, objects: Iterable[CIPObject], *, model=None):
+    def __init__(self, name: str, objects: Iterable[CIPObject], *, model=None,
+                 io: IOPoints | None = None):
         self.name = name
+        self.io = io
+        #: set while an exclusive-owner Class 1 connection writes the outputs
+        self.owned_output = False
         self.objects: dict[tuple[int, int], CIPObject] = {
             (o.class_id, o.instance): o for o in objects}
         self.model = model
@@ -73,6 +92,11 @@ class Device:
         bad = self.faults.take("bad_status")
         if bad is not None and (bad["service"] is None or bad["service"] == service):
             return cip.encode_mr_reply(service, bad["status"])
+        if (self.owned_output and self.io is not None
+                and service in (cip.SET_ATTRIBUTE_SINGLE, cip.SET_ATTRIBUTES_ALL)
+                and path.class_id == cip.ASSEMBLY
+                and path.instance == self.io.output_instance):
+            return cip.encode_mr_reply(service, cip.DEVICE_STATE_CONFLICT)
         if service in (cip.SET_ATTRIBUTE_SINGLE, cip.SET_ATTRIBUTES_ALL):
             reject = self.faults.take("reject_write")
             if reject is not None:
@@ -84,6 +108,22 @@ class Device:
                 and self.faults.take("wrong_assembly") is not None):
             reply_data = bytes([reply_data[0] ^ 0xFF]) + reply_data[1:]
         return cip.encode_mr_reply(service, status, additional=additional, data=reply_data)
+
+    # --- implicit (Class 1) data -----------------------------------------------------
+    def write_outputs(self, data: bytes) -> None:
+        """O->T data from a Class 1 connection: the output assembly, without the
+        explicit-write guard."""
+        if self.model is not None:
+            out = self.model.output
+            out[:] = bytes(data[:len(out)]).ljust(len(out), b"\x00")
+
+    def read_inputs(self) -> bytes:
+        """T->O data for a Class 1 connection; the wrong_assembly fault applies here
+        as it does to an explicit read."""
+        data = bytes(self.model.input) if self.model is not None else b""
+        if data and self.faults.take("wrong_assembly") is not None:
+            data = bytes([data[0] ^ 0xFF]) + data[1:]
+        return data
 
     def tick(self, dt: float) -> None:
         """Advance the behaviour model and refresh the assemblies it drives."""

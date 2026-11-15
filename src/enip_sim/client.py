@@ -22,6 +22,33 @@ class EnipError(Exception):
         super().__init__(f"CIP status 0x{status:02x} ({name})")
 
 
+class ForwardOpenError(EnipError):
+    """A Forward_Open was rejected; ``extended`` is the extended status (e.g. 0x0109)."""
+
+    def __init__(self, status: int, additional: list[int]):
+        self.additional = list(additional)
+        self.extended = additional[0] if additional else None
+        super().__init__(status)
+        if self.extended is not None:
+            detail = _EXTENDED.get(self.extended, "")
+            extra = f", expected size {additional[1]}" if self.extended == 0x0109 \
+                and len(additional) > 1 else ""
+            self.args = (f"{self.args[0]}, extended status 0x{self.extended:04x}"
+                         f"{' (' + detail + ')' if detail else ''}{extra}",)
+
+
+_EXTENDED = {
+    0x0100: "connection in use / duplicate Forward_Open",
+    0x0103: "transport class and trigger not supported",
+    0x0106: "ownership conflict",
+    0x0108: "invalid network connection parameter",
+    0x0109: "invalid connection size",
+    0x0111: "RPI not supported",
+    0x0117: "invalid produced or consumed application path",
+    0x0118: "invalid configuration application path",
+}
+
+
 class EnipClient:
     def __init__(self, host: str = "127.0.0.1", port: int = 44818,
                  *, timeout: float = 5.0):
@@ -92,6 +119,35 @@ class EnipClient:
         reply, _ = enc.decode_rr_data(body)
         _, status, _, reply_data = cip.decode_mr_reply(reply)
         return status, reply_data
+
+    def request_items(self, service: int, path: bytes, data: bytes = b"",
+                      items: list[tuple[int, bytes]] | tuple = ()
+                      ) -> tuple[int, list[int], bytes, list[tuple[int, bytes]]]:
+        """Like :meth:`message`, with extra CPF items both ways; returns
+        (general status, additional status words, reply data, reply items)."""
+        request = cip.encode_mr_request(service, path, data)
+        header, body = self._transact(enc.SEND_RR_DATA,
+                                      enc.encode_rr_data(request, extra_items=items))
+        if header.status != enc.STATUS_SUCCESS:
+            raise ConnectionError(f"encapsulation status 0x{header.status:04x}")
+        reply, _, reply_items = enc.decode_rr_items(body)
+        _, status, additional, reply_data = cip.decode_mr_reply(reply)
+        return status, additional, reply_data, reply_items
+
+    # --- implicit messaging --------------------------------------------------------
+    def open_io(self, *, output_instance: int, input_instance: int, config_instance: int,
+                output_size: int, input_size: int, rpi_ms: float = 50,
+                timeout_multiplier: int = 2, input_only: bool = False,
+                heartbeat_instance: int = 198, large: bool = False):
+        """Open a Class 1 (cyclic, point-to-point) connection and return an
+        :class:`~enip_sim.originator.IOConnection`. Raises ForwardOpenError when the
+        device rejects it. Use it as a context manager, or call ``close()``."""
+        from .originator import open_io
+        return open_io(self, output_instance=output_instance, input_instance=input_instance,
+                       config_instance=config_instance, output_size=output_size,
+                       input_size=input_size, rpi_ms=rpi_ms,
+                       timeout_multiplier=timeout_multiplier, input_only=input_only,
+                       heartbeat_instance=heartbeat_instance, large=large)
 
     def _checked(self, service: int, path: bytes, data: bytes = b"") -> bytes:
         status, reply_data = self.message(service, path, data)

@@ -18,7 +18,8 @@ SERVER = {
     "drop_connection": {},                # the TCP connection is closed instead of answering
     "refuse": {},                         # new TCP connections are closed at once
     "forward_open_reject": {"status": 0x0100},   # Forward_Open answers this extended status
-    "connection_timeout": {},             # an established implicit connection goes quiet
+    "connection_timeout": {},             # Class 1 connections stop producing T->O data
+    "io_loss": {"every": 2},              # every n-th T->O packet of a connection is lost
 }
 # CIP faults, consulted by the device
 DEVICE = {
@@ -63,6 +64,10 @@ class FaultSet:
             if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) \
                     or not math.isfinite(seconds) or seconds < 0:
                 raise FaultError("delay seconds must be a non-negative number")
+        if kind == "io_loss":
+            every = full["every"]
+            if isinstance(every, bool) or not isinstance(every, int) or every < 2:
+                raise FaultError("io_loss every must be an integer >= 2")
         remaining = count if count is not None else _DEFAULT_COUNT.get(kind)
         if remaining is not None and remaining <= 0:
             raise FaultError("count must be positive")
