@@ -6,9 +6,9 @@
 # enip-sim
 
 [![CI](https://github.com/steitec/enip-sim/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/steitec/enip-sim/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/enip-sim?v=0.2.0)](https://pypi.org/project/enip-sim/)
-[![Python](https://img.shields.io/pypi/pyversions/enip-sim?v=0.2.0)](https://pypi.org/project/enip-sim/)
-[![License](https://img.shields.io/pypi/l/enip-sim?v=0.2.0)](https://github.com/steitec/enip-sim/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/enip-sim?v=0.2.1)](https://pypi.org/project/enip-sim/)
+[![Python](https://img.shields.io/pypi/pyversions/enip-sim?v=0.2.1)](https://pypi.org/project/enip-sim/)
+[![License](https://img.shields.io/pypi/l/enip-sim?v=0.2.1)](https://github.com/steitec/enip-sim/blob/main/LICENSE)
 
 Simulated **EtherNet/IP (CIP)** devices that **behave**: an AC drive whose motor ramps
 up when you set the run bit in its output assembly and trips when you tell it to, an

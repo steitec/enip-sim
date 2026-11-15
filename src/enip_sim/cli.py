@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
+import os
 import signal
 import struct
 import sys
@@ -261,18 +263,38 @@ def _cmd_io(args) -> int:
               f"O->T 0x{connection.ot_cid:08x}, T->O 0x{connection.to_cid:08x}", flush=True)
         start = time.monotonic()
         last = None
-        while time.monotonic() - start < args.seconds:
-            data = connection.inputs
-            if data is not None and data != last:
-                line = f"{time.monotonic() - start:7.3f} s  in {data.hex()}"
-                status = _drive_status(data) if profile == "drive" else ""
-                print(line + (status if status else ""), flush=True)
-                last = data
-            time.sleep(min(args.rpi / 1000, 0.05))
+        reader_gone = False
+        try:
+            while time.monotonic() - start < args.seconds:
+                data = connection.inputs
+                if data is not None and data != last:
+                    line = f"{time.monotonic() - start:7.3f} s  in {data.hex()}"
+                    status = _drive_status(data) if profile == "drive" else ""
+                    print(line + (status if status else ""), flush=True)
+                    last = data
+                time.sleep(min(args.rpi / 1000, 0.05))
+        except OSError as error:          # `enip-sim io ... | head`: the reader is gone
+            # BrokenPipeError; Windows sometimes reports a closed pipe as EINVAL
+            if not isinstance(error, BrokenPipeError) and error.errno != errno.EINVAL:
+                raise
+            _silence_stdout()
+            reader_gone = True
         received = connection.packets_received
-    client.close()
+    client.close()                        # after the with block: Forward_Close went out
+    if reader_gone:
+        return 0
     print(f"{PROG}: {received} input packets in {args.seconds:g} s", flush=True)
     return 0
+
+
+def _silence_stdout() -> None:
+    """Point stdout at devnull so the flush at exit does not raise BrokenPipeError again."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
+    except (OSError, ValueError, AttributeError):
+        pass                              # not a real file (tests); nothing to flush
 
 
 def _control_call(args, request: dict) -> int:

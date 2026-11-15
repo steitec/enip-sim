@@ -10,6 +10,7 @@ and keeps the connection bookkeeping.
 from __future__ import annotations
 
 import struct
+import threading
 from dataclasses import dataclass
 from itertools import count
 from typing import TYPE_CHECKING, Callable
@@ -65,6 +66,9 @@ class ConnectionManager:
         self.connections: dict[int, Connection] = {}
         self._cids = count(0x20000001)
         self._device_io = device_io or (lambda: None)
+        # sessions run in their own threads: checking for a duplicate or an owner and
+        # adding the connection must be one step, or two owners can both get in
+        self._lock = threading.RLock()
         #: called with each new connection, and with (connection, reason) when one ends
         self.on_open: Callable[[Connection], None] | None = None
         self.on_close: Callable[[Connection, str], None] | None = None
@@ -81,21 +85,21 @@ class ConnectionManager:
         if reject_status is not None:
             return cip.CONNECTION_FAILURE, _unsuccessful(fo), [reject_status]
         transport_class = fo.transport & TRANSPORT_CLASS_MASK
-        if transport_class == 1:
-            kind, failure = self._check_class1(fo)
-            if failure is not None:
-                return cip.CONNECTION_FAILURE, _unsuccessful(fo), failure
-        elif transport_class == 3:
-            kind = "class3"
-        else:
+        if transport_class not in (1, 3):
             return cip.CONNECTION_FAILURE, _unsuccessful(fo), [EXT_TRANSPORT]
-        ot_cid = next(self._cids)
-        connection = Connection(ot_cid=ot_cid, to_cid=fo.to_cid, serial=fo.serial,
-                                vendor=fo.vendor, orig_serial=fo.orig_serial,
-                                ot_rpi=fo.ot_rpi, to_rpi=fo.to_rpi, kind=kind,
-                                timeout_multiplier=fo.timeout_multiplier,
-                                ot_size=fo.ot_ncp.size, to_size=fo.to_ncp.size)
-        self.connections[ot_cid] = connection
+        with self._lock:
+            kind = "class3"
+            if transport_class == 1:
+                kind, failure = self._check_class1(fo)
+                if failure is not None:
+                    return cip.CONNECTION_FAILURE, _unsuccessful(fo), failure
+            ot_cid = next(self._cids)
+            connection = Connection(ot_cid=ot_cid, to_cid=fo.to_cid, serial=fo.serial,
+                                    vendor=fo.vendor, orig_serial=fo.orig_serial,
+                                    ot_rpi=fo.ot_rpi, to_rpi=fo.to_rpi, kind=kind,
+                                    timeout_multiplier=fo.timeout_multiplier,
+                                    ot_size=fo.ot_ncp.size, to_size=fo.to_ncp.size)
+            self.connections[ot_cid] = connection
         if self.on_open is not None:
             self.on_open(connection)
         reply = (struct.pack("<II", ot_cid, fo.to_cid)
@@ -109,8 +113,9 @@ class ConnectionManager:
 
     def close(self, connection: Connection, reason: str) -> None:
         """End a connection (Forward_Close, or a Class 1 timeout)."""
-        if self.connections.pop(connection.ot_cid, None) is None:
-            return
+        with self._lock:
+            if self.connections.pop(connection.ot_cid, None) is None:
+                return
         if self.on_close is not None:
             self.on_close(connection, reason)
 
@@ -119,7 +124,9 @@ class ConnectionManager:
         if len(data) < 10:
             return cip.INVALID_PARAMETER, b"", []
         serial, vendor, orig_serial = struct.unpack_from("<HHI", data, 2)
-        for cid, connection in list(self.connections.items()):
+        with self._lock:
+            matching = list(self.connections.values())
+        for connection in matching:
             if (connection.serial == serial and connection.vendor == vendor
                     and connection.orig_serial == orig_serial):
                 self.close(connection, "close")

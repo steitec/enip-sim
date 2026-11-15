@@ -175,7 +175,11 @@ class IOConnection:
             except socket.timeout:
                 continue
             except OSError:
-                return
+                # Windows reports an ICMP port unreachable for an earlier sendto as
+                # WSAECONNRESET on the next recvfrom; the socket is still fine. Only a
+                # close() ends the loop (it sets _stop first).
+                self._stop.wait(_RECV_POLL)
+                continue
             try:
                 packet = decode_io_packet(data, with_header=False)
             except enc.EncapsulationError:

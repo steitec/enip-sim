@@ -193,3 +193,50 @@ def test_server_describe_mentions_udp():
         assert f"udp {server.io_port}" in server.describe()
     finally:
         server.stop()
+
+
+def unconnected_send(embedded: bytes) -> bytes:
+    """Unconnected_Send to the Connection Manager wrapping ``embedded`` (route: port 1, slot 0)."""
+    size = len(embedded)
+    data = (bytes([0x0A, 0x0E]) + struct.pack("<H", size) + embedded
+            + (b"\x00" if size % 2 else b"") + bytes([1, 0, 0x01, 0x00]))
+    return cip.encode_mr_request(cip.UNCONNECTED_SEND,
+                                 cip.encode_path(cip.CONNECTION_MANAGER, 1), data)
+
+
+def test_class1_forward_open_inside_unconnected_send_starts_io(served):
+    server, scanner = served
+    embedded = cip.encode_mr_request(cip.FORWARD_OPEN,
+                                     cip.encode_path(cip.CONNECTION_MANAGER, 1), owner())
+    items = [(enc.ITEM_SOCKADDR_T2O, enc.encode_sockaddr("0.0.0.0", scanner.udp_port))]
+    scanner.tcp.sendall(enc.encode(enc.SEND_RR_DATA, session=scanner.session,
+                                   data=enc.encode_rr_data(unconnected_send(embedded),
+                                                           extra_items=items)))
+    _, body = enc.decode(recv_packet(scanner.tcp))
+    reply, _, _ = enc.decode_rr_items(body)
+    service, status, additional, rdata = cip.decode_mr_reply(reply)
+    assert (service & 0x7F, status) == (cip.FORWARD_OPEN, cip.SUCCESS), additional
+    to_cid = struct.unpack_from("<I", rdata, 4)[0]
+    assert scanner.receive().cid == to_cid
+
+
+def test_class1_forward_open_over_send_unit_data_starts_io(served):
+    server, scanner = served
+    status, _, rdata, _ = scanner.forward_open(
+        forward_open_data(path=bytes([0x20, 0x02, 0x24, 0x01]), transport=0xA3,
+                          serial=0x0003, ot_ncp=ncp16(size=500, fixed=False),
+                          to_ncp=ncp16(size=500, fixed=False)))
+    assert status == cip.SUCCESS
+    class3_cid = struct.unpack_from("<I", rdata, 0)[0]
+    request = cip.encode_mr_request(cip.FORWARD_OPEN,
+                                    cip.encode_path(cip.CONNECTION_MANAGER, 1), owner())
+    scanner.tcp.sendall(enc.encode(enc.SEND_UNIT_DATA, session=scanner.session,
+                                   data=enc.encode_unit_data(connection_id=class3_cid,
+                                                             sequence=1, cip=request)))
+    _, body = enc.decode(recv_packet(scanner.tcp))
+    _, _, reply = enc.decode_unit_data(body)
+    _, status, additional, rdata = cip.decode_mr_reply(reply)
+    assert status == cip.SUCCESS, additional
+    ot_cid = struct.unpack_from("<I", rdata, 0)[0]
+    # no sockaddr items on a connected message: production goes to the TCP peer, port 2222
+    assert server.connections.lookup(ot_cid).peer == ("127.0.0.1", 2222)
